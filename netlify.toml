@@ -1,0 +1,10 @@
+[[redirects]]
+  from = "/*"
+  to = "/public/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"

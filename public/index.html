@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+  <title>Distributed Nostr Search</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+  <script type="module">
+    import { Fzf } from 'https://cdn.skypack.dev/fzf?dts'
+
+    var eventsCache = new Map()
+    const relay = 'wss://nostr-relay.wlvs.space'
+    var socket = new WebSocket(relay)
+
+    socket.onopen = () => { socket.send(JSON.stringify(['REQ', 'index', { kinds: [0] }])) }
+    socket.onmessage = function (msg) {
+      let message
+      try {
+        message = JSON.parse(msg.data)
+      } catch (error) {
+        console.error('Unable to parse message', error, message)
+      }
+
+      if (Array.isArray(message) && message.length === 2 && message[0] === 'EOSE') {
+        refreshList()
+        return
+      }
+
+      if (!Array.isArray(message) || message.length !== 3 || message[0] !== 'EVENT' || message[1] !== 'index') {
+        return
+      }
+
+      const event = message[2]
+
+      try {
+        event.content = JSON.parse(event.content)
+      } catch (error) {
+        console.error('Unable to parse content', error, event.content)
+        return
+      }
+
+      const cached = eventsCache.get(event.pubkey)
+      if (!cached || cached.created_at < event.created_at) {
+        eventsCache.set(event.pubkey, event)
+      }
+    }
+
+    function refreshList() {
+      document.getElementById("results").innerHTML = ""
+
+      const fzf = new Fzf(
+        Array.from(eventsCache.values()),
+        {
+          selector: (event) => {
+            return event.content?.name ?? ''
+          },
+        })
+      console.log(document.getElementById("terms").value)
+      const entries = fzf.find(document.getElementById("terms").value)
+
+      for (const entry of entries) {
+        const event = entry.item
+
+        const li = document.createElement('li')
+        const pre = document.createElement('pre')
+        pre.innerHTML = `${event.pubkey} -> ${event.content.name}`
+        li.appendChild(pre)
+        document.getElementById("results").append(li)
+      }
+
+    }
+
+    function search() {
+      refreshList()
+    }
+    window.search = search
+
+    socket.onerror = (error) => console.error('WebSocket error', error)
+  </script>
+
+Filter:
+<input type="text" name="terms" id="terms" onkeyup="search()" />
+<ul id="results">
+</ul>
+</body>
+</html>
