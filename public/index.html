@@ -1,25 +1,118 @@
 <!doctype html>
 <html>
 <head>
-  <title>Nostr Fuzzy Search</title>
+  <title>Nostr Fzf</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/nes.css@2.3.0/css/nes.min.css">
+  <style>
+    html, body, pre {
+      font-family: "Press Start 2P";
+      font-size: 0.9rem;
+    }
+
+    header {
+      padding-top: 20px;
+      margin: 0 auto;
+      text-align: center;
+      font-weight: 600;
+      font-size: 2rem;
+    }
+
+    header.sticky {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 9;
+      border-bottom: 4px solid #D3D3D3;
+      background-color: white;
+    }
+
+    main {
+      width: 950px;
+      max-width: 95%;
+      margin: auto;
+    }
+
+    .nes-field {
+      margin: 25px 0;
+    }
+
+    #results {
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      max-height: 95%;
+    }
+
+    .item {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: space-between;
+    }
+
+    .blink {
+      animation: blinker 1.5s step-start infinite;
+    }
+
+    @keyframes blinker {
+      50% {
+        opacity: 0;
+      }
+    }
+
+    input:focus {
+      outline: none
+    }
+
+    .scroll-btn {
+      position: fixed;
+      right: 2rem;
+      box-shadow: 0 5px 20px rgba(0,0,0,.6);
+      transition: all 0.3s ease;
+      bottom: -60px;
+    }
+
+    .scroll-btn > span {
+      display:block;
+      transform: rotateZ(90deg);
+    }
+
+    .scroll-btn.active {
+      bottom: 25px;
+    }
+
+    #alert {
+      position: fixed;
+      transition: all 0.3s ease;
+      bottom: -100px;
+      margin: auto;
+      width: 400px;
+    }
+
+    #alert.active {
+      bottom: 60px;
+    }
+  </style>
 </head>
 <body>
   <script type="module">
-    import { Fzf } from 'https://cdn.skypack.dev/fzf?dts'
+    import { Fzf, extendedMatch } from 'https://cdn.skypack.dev/fzf?dts'
 
     var eventsCache = new Map()
-    const relay = 'wss://nostr-relay.wlvs.space'
+    const relay = 'wss://relay.damus.io'
     var socket = new WebSocket(relay)
 
-    socket.onopen = () => { socket.send(JSON.stringify(['REQ', 'index', { kinds: [0] }])) }
+    socket.onopen = () => { socket.send(JSON.stringify(['REQ', 'index', { kinds: [0, 40, 41] }])) }
     socket.onmessage = function (msg) {
       let message
       try {
         message = JSON.parse(msg.data)
       } catch (error) {
-        console.error('Unable to parse message', error, message)
+        return
       }
 
       if (Array.isArray(message) && message.length === 2 && message[0] === 'EOSE') {
@@ -36,7 +129,28 @@
       try {
         event.content = JSON.parse(event.content)
       } catch (error) {
-        console.error('Unable to parse content', error, event.content)
+        return
+      }
+
+      switch (event.kind) {
+        case 0:
+          addUserMetadataEvent(event)
+          return
+        case 40:
+          addCreateChannelEvent(event)
+          return
+        case 41:
+          addChannelMetadataEvent(event)
+          return
+      }
+    }
+
+    function addUserMetadataEvent(event) {
+      if (
+        typeof event.content !== 'object'
+        || isEmpty(event.content.name)
+        && isEmpty(event.content.nip05)
+      ) {
         return
       }
 
@@ -46,29 +160,118 @@
       }
     }
 
+    function isEmpty(value) {
+      return typeof value !== 'string' || !value.trim().length
+    }
+
+    function addCreateChannelEvent(event) {
+      eventsCache.set(event.id, { channelId: event.id, ...event })
+    }
+
+    function addChannelMetadataEvent(event) {
+      const eTag = event.tags.find((tag) => tag[0] === 'e')
+      if (!eTag) {
+        return
+      }
+
+      const eventId = eTag[1]
+
+      const cached = eventsCache.get(eventId)
+      if (cached && (cached.pubkey !== event.pubkey || cached.created_at > event.created_at)) {
+        return
+      }
+
+      eventsCache.set(eventId, { channelId: eventId, ...event })
+    }
+
     function refreshList() {
       document.getElementById("results").innerHTML = ""
 
+      const showChannels = document.getElementById('showChannels').checked
+      const showVerified = document.getElementById('showVerified').checked
+      const showUnverified = document.getElementById('showUnverified').checked
+
+      const events = Array.from(eventsCache.values())
+        .filter(event => {
+          if ((event.kind === 40 || event.kind === 41) && !showChannels) {
+            return false;
+          } else if (event.kind === 0 && event.content.nip05 && !showVerified) {
+            return false;
+          } else if (event.kind === 0 && !event.content.nip05 && !showUnverified) {
+            return false;
+          }
+
+          return true;
+        })
+
       const fzf = new Fzf(
-        Array.from(eventsCache.values()),
+        events,
         {
           selector: (event) => {
-            return event.content?.name ?? ''
+            return event.content?.nip05 ?? event.content?.name ?? ''
           },
+          match: extendedMatch,
         })
-      console.log(document.getElementById("terms").value)
       const entries = fzf.find(document.getElementById("terms").value)
+
+      document.getElementById('count').innerHTML = `(${entries.length})`
 
       for (const entry of entries) {
         const event = entry.item
 
-        const li = document.createElement('li')
-        const pre = document.createElement('pre')
-        pre.innerHTML = `${event.pubkey} -> ${event.content.name}`
-        li.appendChild(pre)
-        document.getElementById("results").append(li)
+        const isUser = event.kind === 0
+        const isNip05 = typeof event.content.nip05 === 'string' && event.content.nip05.trim().length
+        const name = (isNip05) ? event.content.nip05.trim().replace(/^_@/, '') : event.content.name
+        const key = (isUser) ? event.pubkey : event.channelId
+
+        const listElement = document.createElement('div')
+        listElement.setAttribute('class', 'item nes-pointer')
+        listElement.setAttribute('onclick', `copy('${key}')`)
+
+        const nameTag = document.createElement('span')
+        nameTag.setAttribute('class', 'nes-text')
+
+        const nameParts = name.split('').map((char, i) => {
+          if (entry.positions.has(i)) {
+            const b = document.createElement('span')
+            if (isUser) {
+              b.setAttribute('class', 'nes-text is-primary')
+            } else {
+              b.setAttribute('class', 'nes-text is-success')
+            }
+            
+            b.setAttribute('key', i)
+            b.innerHTML = char
+            return b
+          }
+          
+          return document.createTextNode(char)
+        })
+        
+        for (const namePart of nameParts) {
+          nameTag.appendChild(namePart)
+        }
+
+        const pubkeyTag = document.createElement('span')
+        pubkeyTag.setAttribute('class', 'nes-text')
+        pubkeyTag.innerHTML = trimKey(key);
+
+        if (isNip05) {
+          const starTag = document.createElement('i')
+          starTag.setAttribute('class', 'nes-icon is-small star')
+          nameTag.appendChild(starTag)
+        }
+
+        listElement.appendChild(nameTag)
+        listElement.appendChild(pubkeyTag)
+        document.getElementById("results").append(listElement)
       }
 
+    }
+    window.refreshList = refreshList
+
+    function trimKey(key) {
+      return `${key.slice(0, 6)}..${key.slice(-6)}`
     }
 
     function search() {
@@ -76,12 +279,72 @@
     }
     window.search = search
 
+    function onscroll() {
+      if (document.documentElement.scrollTop < 50) {
+        document.getElementById('header').setAttribute('class', '')
+        document.getElementById('scroll-btn').setAttribute('class', 'nes-btn is-error scroll-btn')
+      } else {
+        document.getElementById('header').setAttribute('class', 'sticky')
+        document.getElementById('scroll-btn').setAttribute('class', 'nes-btn is-error scroll-btn active')
+      }
+    }
+    window.onscroll = onscroll
+
+    let alertTimeout
+    function copy(key){
+      clearInterval(alertTimeout)
+      navigator.clipboard.writeText(key);
+      document.getElementById('alert').setAttribute('class', 'active')
+      alertTimeout = setTimeout(() => {
+        document.getElementById('alert').setAttribute('class', '')
+      }, 1000)
+    }
+    window.copy = copy
+
+    function scrollUp() {
+      window.scrollTo({ top: 0 })
+    }
+    window.scrollUp = scrollUp
+
     socket.onerror = (error) => console.error('WebSocket error', error)
   </script>
-
-Filter:
-<input type="text" name="terms" id="terms" onkeyup="search()" />
-<ul id="results">
-</ul>
+  <div class="container">
+    <header id="header">
+      <div class="container">
+        <span class="nes-text blink">_</span>&nbsp;<span class="nes-text">Nostr Fzf</span>
+      </div>
+    </header>
+    <main>
+      <form>
+        <div class="nes-field">
+          <label for="terms">Search for <span class="nes-text is-primary">users</span> or <span class="nes-text is-success">channels</span></label>
+          <input type="text" name="terms" id="terms" onkeyup="search()" placeholder="name..." class="nes-input">
+        </div>
+        <label>
+          <input type="checkbox" class="nes-checkbox" id="showUnverified" onclick="refreshList()" />
+          <span>Unverified Users</span>
+        </label>
+        <label>
+          <input type="checkbox" class="nes-checkbox" id="showVerified" checked onclick="refreshList()" />
+          <span>Verified Users</span>
+        </label>
+        <label>
+          <input type="checkbox" class="nes-checkbox" id="showChannels" checked onclick="refreshList()" />
+          <span>Channels</span>
+        </label>
+      </form>
+      <div class="nes-container with-title">
+        <p class="title">Results <span class="nes-text" id="count"></p>
+        <div id="results">
+      </div>
+  
+      <div class="alert" id="alert">
+        <div class="nes-balloon from-left is-rounded">
+          <p>Copied to clipboard</p>
+        </div>
+      </div>
+    </main>
+  </div>
+  <button type="button" class="nes-btn is-error scroll-btn" id="scroll-btn" onclick="scrollUp()"><span>&lt;</span></button>
 </body>
 </html>
