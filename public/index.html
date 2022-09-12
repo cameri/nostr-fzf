@@ -211,6 +211,7 @@
             return event.content?.nip05 ?? event.content?.name ?? ''
           },
           match: extendedMatch,
+          casing: 'case-insensitive',
         })
       const entries = fzf.find(document.getElementById("terms").value)
 
