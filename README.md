@@ -1,4 +1,5 @@
 # Nostr Fzf
+Search for usernames and channels  in Nostr
 
 [Live](https://nostr-fzf.netlify.app/)
 
