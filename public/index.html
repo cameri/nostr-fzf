@@ -185,7 +185,7 @@
     }
 
     function refreshList() {
-      document.getElementById("results").innerHTML = ""
+      document.getElementById("results").innerText = ""
 
       const showChannels = document.getElementById('showChannels').checked
       const showVerified = document.getElementById('showVerified').checked
@@ -215,7 +215,7 @@
         })
       const entries = fzf.find(document.getElementById("terms").value)
 
-      document.getElementById('count').innerHTML = `(${entries.length})`
+      document.getElementById('count').innerText = `(${entries.length})`
 
       for (const entry of entries) {
         const event = entry.item
@@ -242,7 +242,7 @@
             }
             
             b.setAttribute('key', i)
-            b.innerHTML = char
+            b.innerText = char
             return b
           }
           
@@ -255,7 +255,7 @@
 
         const pubkeyTag = document.createElement('span')
         pubkeyTag.setAttribute('class', 'nes-text')
-        pubkeyTag.innerHTML = trimKey(key);
+        pubkeyTag.innerText = trimKey(key);
 
         if (isNip05) {
           const starTag = document.createElement('i')
