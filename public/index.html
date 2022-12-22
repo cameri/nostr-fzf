@@ -103,7 +103,7 @@
     import { Fzf, extendedMatch } from 'https://cdn.skypack.dev/fzf?dts'
 
     var eventsCache = new Map()
-    const relay = 'wss://relay.damus.io'
+    const relay = 'wss://nostr-relay.wlvs.space'
     var socket = new WebSocket(relay)
 
     socket.onopen = () => { socket.send(JSON.stringify(['REQ', 'index', { kinds: [0, 40, 41] }])) }
